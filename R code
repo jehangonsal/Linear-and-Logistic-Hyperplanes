@@ -1,0 +1,169 @@
+
+### Let's create some cool hyperplanes
+
+library(randomForest)
+library(tidyverse)
+library(plotly)
+library(reshape2)
+library(ggimage)
+library(corrplot)
+
+data <- datasets::rock ### More info: https://stat.ethz.ch/R-manual/R-devel/library/datasets/html/rock.html
+
+### We are trying to predict permeability of rock samples
+
+data %>% cor %>% corrplot(method = "circle")
+
+data %>% ggplot(aes(x = area, y = perm)) +
+  geom_point(colour = "dark blue") +
+  geom_smooth(method = "lm") +
+  theme_bw() + 
+  labs(title = "Scatterplot of area and water permeability with trend line")
+
+data %>% ggplot(aes(x = shape, y = perm)) +
+  geom_point(colour = "dark blue") +
+  geom_smooth(method = "lm") +
+  theme_bw() + 
+  labs(title = "Scatterplot of shape and water permeability with trend line")
+
+data %>% ggplot(aes(x = peri, y = perm)) +
+  geom_point(colour = "dark blue") +
+  geom_smooth(method = "lm") +
+  theme_bw() + 
+  labs(title = "Scatterplot of perimeter and water permeability with trend line")
+
+data %>% ggplot(aes(x = peri, y = perm)) +
+  geom_image(image = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTbVx-qWgRBUiA0sDPNWylj0aJpkwgyBIBJ84dvQi96SKh67jYA",
+             size = .1) +
+  geom_smooth(method = "lm") +
+  theme_bw() + 
+  labs(title = "A scatterplot about rocks courtesy of the Rock")
+
+### Let's try to make a 3d plot with a hyperplane
+
+linear_1 <- lm(perm ~ shape + peri, data = data)
+
+# linear <- lm(peri~ 0 + area + perm, data = datasets::rock)
+
+summary(linear_1)
+
+### Let's visualise the model
+
+data_mod <- data
+
+### Code source: https://stackoverflow.com/questions/38331198/add-regression-plane-to-3d-scatter-plot-in-plotly
+### Code was reworked, but thanks to Pokyah for this great work!
+
+### Wrap the whole shebang into a function later. 
+
+data_mod$residuals <- abs(predict.lm(linear_1, newdata = data_mod) - data_mod$perm)
+
+#Setup Axis
+
+### Create a function to do the legwork
+
+get_axis <- function(x, points = 100) {
+  min <- min(x)
+  max <- max(x)
+  axis <- seq(min, max, by = (max - min) / points)
+}
+
+axis_x <- get_axis(data$shape)
+
+axis_y <- get_axis(data$peri)
+
+### Create the furface
+
+create_surface <- function(axis_x, axis_y, x , y, model){
+  surface <- expand.grid(x = axis_x, y = axis_y,KEEP.OUT.ATTRS = F)
+  names(surface) <- c(deparse(substitute(x)), deparse(substitute(y)))
+  surface$perm <- predict.lm(model, newdata = surface)
+  var_names <- noquote(names(surface))
+  var1 <- var_names[1]
+  var2 <- var_names[2]
+  formula <- as.formula(paste(var2, var1, sep = "~"))
+  surface <- acast(surface, formula, value.var = "perm")
+  surface
+}
+
+lm1_surface <- create_surface(axis_x, axis_y, shape, peri, linear_1)
+
+### Plot it all in 3D space
+
+plot1 <- plot_ly(data_mod,  
+                x = ~shape, 
+                y = ~peri, 
+                z = ~perm,
+                marker = list(color = ~residuals, colorscale = c('#ADD8E6', '#FF0000'), showscale = FALSE),
+                type = "scatter3d")
+
+plot1 <- add_trace(p = plot1, z = lm1_surface,
+                  x = axis_x,
+                  y = axis_y,
+                  type = "surface", showscale = FALSE) %>%
+  layout(title = "3D Scatterplot with Linear Regression Hyperplane") 
+
+plot1
+
+
+###  Let's do it again with for logistic regression
+
+create_surface_logit <- function(axis_x, axis_y, x , y, model){
+  surface <- expand.grid(x = axis_x, y = axis_y,KEEP.OUT.ATTRS = F)
+  names(surface) <- c(deparse(substitute(x)), deparse(substitute(y)))
+  surface$Virginica_Flag <- predict(model, newdata = surface, type = "response")
+  var_names <- noquote(names(surface))
+  var1 <- var_names[1]
+  var2 <- var_names[2]
+  formula <- as.formula(paste(var2, var1, sep = "~"))
+  surface <- acast(surface, formula, value.var = "Virginica_Flag")
+  surface
+}
+
+data <- iris %>% mutate(Virginica_Flag = ifelse(Species == "virginica", 1, 0))
+
+logit <- glm(Virginica_Flag ~ Petal.Width + Petal.Length, family = binomial(link= "logit"), data = data)
+
+logit
+
+### Let's visualise the model
+
+data$probability <- predict(logit, newdata = data, type = "response")
+
+axis4_x <- get_axis(data$Petal.Width)
+
+axis4_y <- get_axis(data$Petal.Length)
+
+create_surface_logit <- function(axis_x, axis_y, x , y, model){
+  surface <- expand.grid(x = axis_x, y = axis_y,KEEP.OUT.ATTRS = F)
+  names(surface) <- c(deparse(substitute(x)), deparse(substitute(y)))
+  surface$Virginica_Flag <- predict(model, newdata = surface, type = "response")
+  var_names <- noquote(names(surface))
+  var1 <- var_names[1]
+  var2 <- var_names[2]
+  formula <- as.formula(paste(var2, var1, sep = "~"))
+  surface <- acast(surface, formula, value.var = "Virginica_Flag")
+  surface
+}
+
+lm4_surface <- create_surface_logit(axis4_x, axis4_y, Petal.Width, Petal.Length, logit)
+
+
+### Bring it all together
+
+plot4 <- plot_ly(data,  
+                 x = ~Petal.Width, 
+                 y = ~Petal.Length, 
+                 z = ~Virginica_Flag,
+                 mode = "markers",
+                 marker = list(color = ~probability, colorscale = c('#ADD8E6', '#FF0000'), showscale = FALSE),
+                 type = "scatter3d")
+
+plot4 <- add_trace(p = plot4, z = lm4_surface,
+                   x = axis4_x,
+                   y = axis4_y,
+                   type = "surface") %>%
+  layout(title = "3D Scatterplot with Logistic Regression Hyperplane")
+
+plot4
+
